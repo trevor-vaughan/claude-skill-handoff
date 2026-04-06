@@ -1,0 +1,155 @@
+{
+  "skill_name": "handoff",
+  "evals": [
+    {
+      "id": 1,
+      "name": "mid-feature-api",
+      "prompt": "You are midway through building a REST API task manager in Go with Chi router. You have implemented list and create endpoints. You decided to use SQLite (not PostgreSQL) because this is a single-user CLI tool. You tried using GORM for the ORM but it pulled in too many dependencies, so you switched to plain database/sql with mattn/go-sqlite3. The updateTask handler is partially written but uncommitted. The PUT, DELETE, and assign endpoints are not started. Your next step is to finish the SQLite integration in handlers.go, then implement the remaining 3 endpoints per docs/api-spec.md. Save a handoff so another session can continue this work.",
+      "scaffolding": [
+        {"path": "src/handlers.go", "content": "package main\n\nimport \"net/http\"\n\nfunc listTasks(w http.ResponseWriter, r *http.Request) {}\nfunc createTask(w http.ResponseWriter, r *http.Request) {}\nfunc updateTask(w http.ResponseWriter, r *http.Request) {\n\t// partial\n}\n"},
+        {"path": "src/main.go", "content": "package main\n\nfunc main() {}\n"},
+        {"path": "docs/api-spec.md", "content": "# Task Manager API Spec\n\n## Endpoints\n- GET /tasks\n- POST /tasks\n- PUT /tasks/:id\n- DELETE /tasks/:id\n- POST /tasks/:id/assign\n"},
+        {"path": "go.mod", "content": "module taskmanager\n\ngo 1.22\n"}
+      ],
+      "expectations": [
+        {
+          "description": "Handoff file is written to .claude/handoff/state.md",
+          "type": "file_exists",
+          "path": ".claude/handoff/state.md"
+        },
+        {
+          "description": "Document contains a Mission section describing the REST API task manager goal",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["[Mm]ission", "[Rr][Ee][Ss][Tt]\\s*API|REST API|task.manager"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document mentions the SQLite-over-PostgreSQL decision with rationale (single-user CLI tool)",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["SQLite", "PostgreSQL|Postgres"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document mentions GORM as a rejected/failed approach with reason (too many dependencies)",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["GORM|gorm"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document notes uncommitted changes to src/handlers.go",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["handlers\\.go"]
+        },
+        {
+          "description": "Document references docs/api-spec.md in key files or next steps",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["api-spec\\.md"]
+        },
+        {
+          "description": ".gitignore is updated to exclude .claude/handoff/",
+          "type": "content",
+          "file": ".gitignore",
+          "patterns": ["\\.claude/handoff"]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "bug-investigation",
+      "prompt": "You have been debugging an OOM bug in a CSV processor. The bug occurs on files over 500MB because process_csv() calls list(reader) which materializes all rows into memory. You tried two fixes that failed: (1) chunked reading with itertools.islice broke delimiter re-detection after seek, (2) mmap approach was incompatible with csv.DictReader. The root cause is confirmed: list(reader) in process_csv(). The solution is a streaming generator approach that preserves the DictReader interface for downstream consumers, but you haven't implemented it yet. Save a handoff so another session can implement the fix.",
+      "scaffolding": [
+        {"path": "src/processor.py", "content": "import csv\n\ndef process_csv(path):\n    with open(path) as f:\n        reader = csv.DictReader(f)\n        rows = list(reader)  # OOM on large files\n        return rows\n"},
+        {"path": "tests/test_processor.py", "content": "from src.processor import process_csv\n\ndef test_small_file():\n    pass\n"},
+        {"path": "requirements.txt", "content": ""}
+      ],
+      "expectations": [
+        {
+          "description": "Handoff file is written to .claude/handoff/state.md",
+          "type": "file_exists",
+          "path": ".claude/handoff/state.md"
+        },
+        {
+          "description": "Document describes both failed fixes: itertools.islice (broke delimiter re-detection) and mmap (incompatible with DictReader)",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["itertools|islice", "mmap"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document identifies list(reader) as the root cause of the OOM bug",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["list\\(reader\\)|list\\(.*reader"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document mentions streaming generator as the proposed solution approach",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["stream|generator"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document references src/processor.py as a key file",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["processor\\.py"]
+        },
+        {
+          "description": ".gitignore is updated to exclude .claude/handoff/",
+          "type": "content",
+          "file": ".gitignore",
+          "patterns": ["\\.claude/handoff"]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "fresh-scaffold",
+      "prompt": "You just scaffolded a new TypeScript project called md-slides that converts markdown files into reveal.js slide decks. You set up package.json with reveal.js, marked, and gray-matter as dependencies, configured TypeScript with strict mode, and created a Taskfile.yml for build/test/dev tasks. You haven't installed node_modules yet (waiting for the user to confirm Node version). The implementation plan is: (1) parse markdown frontmatter for slide metadata, (2) split on --- delimiters for slide boundaries, (3) render each slide's markdown to HTML, (4) wrap in reveal.js template, (5) write output HTML file. Save a handoff so another session can start the implementation.",
+      "scaffolding": [
+        {"path": "package.json", "content": "{\n  \"name\": \"md-slides\",\n  \"version\": \"0.1.0\",\n  \"dependencies\": {\n    \"reveal.js\": \"^5.0.0\",\n    \"marked\": \"^12.0.0\",\n    \"gray-matter\": \"^4.0.3\"\n  },\n  \"devDependencies\": {\n    \"typescript\": \"^5.4.0\"\n  }\n}\n"},
+        {"path": "tsconfig.json", "content": "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"node16\",\n    \"outDir\": \"dist\"\n  }\n}\n"},
+        {"path": "Taskfile.yml", "content": "version: '3'\n\ntasks:\n  build:\n    cmds: [npx tsc]\n  test:\n    cmds: [npx vitest]\n  dev:\n    cmds: [npx tsc --watch]\n"}
+      ],
+      "expectations": [
+        {
+          "description": "Handoff file is written to .claude/handoff/state.md",
+          "type": "file_exists",
+          "path": ".claude/handoff/state.md"
+        },
+        {
+          "description": "Document contains the 5-step implementation plan (frontmatter, split, render, wrap, write)",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["frontmatter|metadata", "split|delimiter|boundary", "render|HTML", "reveal|template", "write|output"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document notes that node_modules are not installed / Node version pending confirmation",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["node_modules|Node.*version|npm install|not.*install"],
+          "grading": "llm"
+        },
+        {
+          "description": "Document lists package.json, tsconfig.json, and Taskfile.yml as key files",
+          "type": "content",
+          "file": ".claude/handoff/state.md",
+          "patterns": ["package\\.json", "tsconfig", "Taskfile"]
+        },
+        {
+          "description": ".gitignore is updated to exclude .claude/handoff/",
+          "type": "content",
+          "file": ".gitignore",
+          "patterns": ["\\.claude/handoff"]
+        }
+      ]
+    }
+  ]
+}

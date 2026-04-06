@@ -1,0 +1,10 @@
+# Test and eval output
+.test-output/
+handoff-workspace/
+
+# Editor and OS
+*.tmp
+*.bak
+
+# Claude Code local config
+.claude/settings.local.json

@@ -1,0 +1,447 @@
+version: '3'
+
+vars:
+  MODE: '{{.MODE | default "human"}}'
+  SKILL_DIR: .claude/skills/handoff
+  SKILL_NAME: handoff
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  install:
+    desc: Install handoff skill into ~/.claude/skills/
+    cmds:
+      - |
+        SKILLS_ROOT="${HOME}/.claude/skills"
+        TARGET="$SKILLS_ROOT/{{.SKILL_NAME}}"
+        SOURCE="$(pwd)/{{.SKILL_DIR}}"
+        mkdir -p "$SKILLS_ROOT"
+        if [ -L "$TARGET" ] || [ -d "$TARGET" ]; then
+          echo "  {{.SKILL_NAME}}: already installed at $TARGET"
+          echo ""
+          echo "Nothing new to install. Use 'task uninstall' first to reinstall."
+        else
+          ln -s "$SOURCE" "$TARGET"
+          echo "  {{.SKILL_NAME}}: installed ($TARGET -> $SOURCE)"
+          echo ""
+          echo "Start a new Claude Code session to pick up the skill."
+        fi
+
+  uninstall:
+    desc: Remove handoff skill from ~/.claude/skills/
+    cmds:
+      - |
+        TARGET="${HOME}/.claude/skills/{{.SKILL_NAME}}"
+        if [ -L "$TARGET" ]; then
+          rm "$TARGET"
+          echo "  {{.SKILL_NAME}}: uninstalled"
+        elif [ -d "$TARGET" ]; then
+          rm -rf "$TARGET"
+          echo "  {{.SKILL_NAME}}: uninstalled"
+        else
+          echo "  {{.SKILL_NAME}}: not installed"
+        fi
+
+  lint:
+    desc: Check required project files exist and are non-empty
+    cmds:
+      - |
+        echo "=== File Lint ==="
+        MISSING=0
+        for f in {{.SKILL_DIR}}/SKILL.md README.md evals/evals.json .gitignore; do
+          if [ ! -f "$f" ]; then
+            echo "  MISSING: $f"
+            MISSING=$((MISSING + 1))
+          elif [ ! -s "$f" ]; then
+            echo "  EMPTY: $f"
+            MISSING=$((MISSING + 1))
+          else
+            if [ "{{.MODE}}" = "human" ]; then
+              echo "  OK: $f"
+            fi
+          fi
+        done
+        echo "---"
+        if [ "$MISSING" -eq 0 ]; then
+          echo "All required files present."
+        else
+          echo "$MISSING files missing/empty"
+          exit 1
+        fi
+
+  test:
+    desc: Run all tests (MODE=human for verbose, MODE=llm for errors-only)
+    cmds:
+      - task: test:skill
+      - task: test:evals
+      - task: test:docs
+
+  test:skill:
+    desc: Validate SKILL.md structure (frontmatter, required sections)
+    cmds:
+      - |
+        echo "=== Skill Structure Tests ==="
+        PASS=0; FAIL=0
+        SKILL="{{.SKILL_DIR}}/SKILL.md"
+
+        check() {
+          local desc="$1" result="$2"
+          if [ "$result" = "ok" ]; then
+            PASS=$((PASS + 1))
+            if [ "{{.MODE}}" = "human" ]; then echo "  PASS: $desc"; fi
+          else
+            FAIL=$((FAIL + 1))
+            echo "  FAIL: $desc"
+          fi
+        }
+
+        # Frontmatter checks
+        if head -1 "$SKILL" | grep -q '^---$'; then
+          check "frontmatter opening delimiter" "ok"
+        else
+          check "frontmatter opening delimiter" "fail"
+        fi
+
+        if sed -n '2,/^---$/p' "$SKILL" | grep -q '^name:'; then
+          check "frontmatter 'name' field" "ok"
+        else
+          check "frontmatter 'name' field" "fail"
+        fi
+
+        if sed -n '2,/^---$/p' "$SKILL" | grep -q '^description:'; then
+          check "frontmatter 'description' field" "ok"
+        else
+          check "frontmatter 'description' field" "fail"
+        fi
+
+        NAME_VAL=$(sed -n 's/^name: *//p' "$SKILL" | head -1)
+        if [ "$NAME_VAL" = "handoff" ]; then
+          check "frontmatter name equals 'handoff'" "ok"
+        else
+          check "frontmatter name equals 'handoff' (got '$NAME_VAL')" "fail"
+        fi
+
+        # Required sections
+        for section in \
+          "## Overview" \
+          "## Gathering State" \
+          "## Document Template" \
+          "## Verify Completeness" \
+          "## Git Hygiene" \
+          "## After Writing" \
+          "## What NOT to Include"; do
+          if grep -qF "$section" "$SKILL"; then
+            check "section: $section" "ok"
+          else
+            check "section: $section" "fail"
+          fi
+        done
+
+        # Subsections under Gathering State
+        for sub in "### From conversation context" "### From git" "### From filesystem" "### From environment"; do
+          if grep -qF "$sub" "$SKILL"; then
+            check "subsection: $sub" "ok"
+          else
+            check "subsection: $sub" "fail"
+          fi
+        done
+
+        # Verification steps
+        for step in "### Step 1:" "### Step 2:" "### Step 3:"; do
+          if grep -qF "$step" "$SKILL"; then
+            check "verification: $step" "ok"
+          else
+            check "verification: $step" "fail"
+          fi
+        done
+
+        # Output path referenced
+        if grep -q '\.claude/handoff/state\.md' "$SKILL"; then
+          check "references output path .claude/handoff/state.md" "ok"
+        else
+          check "references output path .claude/handoff/state.md" "fail"
+        fi
+
+        # Template contains required document sections
+        for tpl_section in "## Mission" "## Plan & Progress" "## Key Decisions" \
+          "## Blockers & Failed Approaches" "## Key Files" "## Git State" \
+          "## Environment" "## Next Steps"; do
+          if grep -qF "$tpl_section" "$SKILL"; then
+            check "template section: $tpl_section" "ok"
+          else
+            check "template section: $tpl_section" "fail"
+          fi
+        done
+
+        TOTAL=$((PASS + FAIL))
+        echo "---"
+        echo "Skill structure: $TOTAL total, $PASS pass, $FAIL fail"
+        [ "$FAIL" -eq 0 ] || exit 1
+
+  test:evals:
+    desc: Validate evals.json structure and required fields
+    cmds:
+      - |
+        echo "=== Eval Definition Tests ==="
+        PASS=0; FAIL=0
+        EVALS="evals/evals.json"
+
+        check() {
+          local desc="$1" result="$2"
+          if [ "$result" = "ok" ]; then
+            PASS=$((PASS + 1))
+            if [ "{{.MODE}}" = "human" ]; then echo "  PASS: $desc"; fi
+          else
+            FAIL=$((FAIL + 1))
+            echo "  FAIL: $desc"
+          fi
+        }
+
+        # Valid JSON
+        if python3 -c "import json; json.load(open('$EVALS'))" 2>/dev/null; then
+          check "valid JSON" "ok"
+        else
+          check "valid JSON" "fail"
+          echo "---"
+          echo "Eval definitions: cannot continue with invalid JSON"
+          exit 1
+        fi
+
+        # Has skill_name
+        if python3 -c "
+        import json, sys
+        d = json.load(open('$EVALS'))
+        sys.exit(0 if d.get('skill_name') == 'handoff' else 1)
+        " 2>/dev/null; then
+          check "skill_name is 'handoff'" "ok"
+        else
+          check "skill_name is 'handoff'" "fail"
+        fi
+
+        # Has evals array with entries
+        EVAL_COUNT=$(python3 -c "
+        import json
+        d = json.load(open('$EVALS'))
+        print(len(d.get('evals', [])))
+        " 2>/dev/null)
+        if [ "$EVAL_COUNT" -gt 0 ] 2>/dev/null; then
+          check "evals array has $EVAL_COUNT entries" "ok"
+        else
+          check "evals array is non-empty" "fail"
+        fi
+
+        # Each eval has required fields
+        python3 -c "
+        import json, sys
+        d = json.load(open('$EVALS'))
+        required = ['id', 'name', 'prompt', 'scaffolding', 'expectations']
+        errors = []
+        for i, ev in enumerate(d.get('evals', [])):
+            for field in required:
+                if field not in ev:
+                    errors.append(f'eval {i+1}: missing {field}')
+            if 'expectations' in ev:
+                if not isinstance(ev['expectations'], list) or len(ev['expectations']) == 0:
+                    errors.append(f'eval {i+1}: expectations must be non-empty list')
+        for e in errors:
+            print(e)
+        sys.exit(1 if errors else 0)
+        " 2>/dev/null
+        if [ $? -eq 0 ]; then
+          check "all evals have required fields (id, name, prompt, scaffolding, expectations)" "ok"
+        else
+          check "all evals have required fields" "fail"
+        fi
+
+        # Each eval has unique id
+        UNIQUE_IDS=$(python3 -c "
+        import json
+        d = json.load(open('$EVALS'))
+        ids = [e['id'] for e in d.get('evals', []) if 'id' in e]
+        print('yes' if len(ids) == len(set(ids)) else 'no')
+        " 2>/dev/null)
+        if [ "$UNIQUE_IDS" = "yes" ]; then
+          check "eval IDs are unique" "ok"
+        else
+          check "eval IDs are unique" "fail"
+        fi
+
+        # Eval names are unique
+        UNIQUE_NAMES=$(python3 -c "
+        import json
+        d = json.load(open('$EVALS'))
+        names = [e['name'] for e in d.get('evals', []) if 'name' in e]
+        print('yes' if len(names) == len(set(names)) else 'no')
+        " 2>/dev/null)
+        if [ "$UNIQUE_NAMES" = "yes" ]; then
+          check "eval names are unique" "ok"
+        else
+          check "eval names are unique" "fail"
+        fi
+
+        # Scaffolding structure is valid
+        python3 -c "
+        import json, sys
+        d = json.load(open('$EVALS'))
+        errors = []
+        for ev in d.get('evals', []):
+            name = ev.get('name', 'id=' + str(ev.get('id')))
+            sc = ev.get('scaffolding', [])
+            if not isinstance(sc, list):
+                errors.append(name + ': scaffolding must be an array')
+                continue
+            for i, item in enumerate(sc):
+                if not isinstance(item, dict):
+                    errors.append(name + ' scaffold ' + str(i+1) + ': must be object')
+                    continue
+                if 'path' not in item or not item['path']:
+                    errors.append(name + ' scaffold ' + str(i+1) + ': missing or empty path')
+                if 'content' not in item:
+                    errors.append(name + ' scaffold ' + str(i+1) + ': missing content')
+        for e in errors:
+            print(e)
+        sys.exit(1 if errors else 0)
+        " 2>/dev/null
+        if [ $? -eq 0 ]; then
+          check "all scaffolding entries have valid structure" "ok"
+        else
+          check "all scaffolding entries have valid structure" "fail"
+        fi
+
+        # Each expectation has valid structure
+        python3 -c "
+        import json, sys
+        d = json.load(open('$EVALS'))
+        ALLOWED_TYPES = {'file_exists', 'content', 'file_not_exists'}
+        ALLOWED_GRADING = {'deterministic', 'llm'}
+        errors = []
+        for ev in d.get('evals', []):
+            name = ev.get('name', 'id=' + str(ev.get('id')))
+            for i, exp in enumerate(ev.get('expectations', [])):
+                label = name + ' exp ' + str(i+1)
+                if 'description' not in exp:
+                    errors.append(label + ': missing description')
+                if 'type' not in exp:
+                    errors.append(label + ': missing type')
+                t = exp.get('type')
+                if t and t not in ALLOWED_TYPES:
+                    errors.append(label + ': unknown type ' + str(t))
+                if t == 'file_exists' and 'path' not in exp:
+                    errors.append(label + ': file_exists requires path')
+                if t == 'file_not_exists' and 'path' not in exp:
+                    errors.append(label + ': file_not_exists requires path')
+                if t == 'content':
+                    if 'file' not in exp:
+                        errors.append(label + ': content requires file')
+                    if 'patterns' not in exp or not exp['patterns']:
+                        errors.append(label + ': content requires non-empty patterns')
+                g = exp.get('grading')
+                if g and g not in ALLOWED_GRADING:
+                    errors.append(label + ': unknown grading ' + str(g))
+        for e in errors:
+            print(e)
+        sys.exit(1 if errors else 0)
+        " 2>/dev/null
+        if [ $? -eq 0 ]; then
+          check "all expectations have valid structure" "ok"
+        else
+          check "all expectations have valid structure" "fail"
+        fi
+
+        TOTAL=$((PASS + FAIL))
+        echo "---"
+        echo "Eval definitions: $TOTAL total, $PASS pass, $FAIL fail"
+        [ "$FAIL" -eq 0 ] || exit 1
+
+  test:docs:
+    desc: Validate README accuracy (paths, claims match reality)
+    cmds:
+      - |
+        echo "=== Documentation Tests ==="
+        PASS=0; FAIL=0
+
+        check() {
+          local desc="$1" result="$2"
+          if [ "$result" = "ok" ]; then
+            PASS=$((PASS + 1))
+            if [ "{{.MODE}}" = "human" ]; then echo "  PASS: $desc"; fi
+          else
+            FAIL=$((FAIL + 1))
+            echo "  FAIL: $desc"
+          fi
+        }
+
+        # README references the correct skill path
+        if grep -q '\.claude/skills/handoff' README.md; then
+          check "README references .claude/skills/handoff" "ok"
+        else
+          check "README references .claude/skills/handoff" "fail"
+        fi
+
+        # README references the output path
+        if grep -q '\.claude/handoff/state\.md' README.md; then
+          check "README references output path .claude/handoff/state.md" "ok"
+        else
+          check "README references output path .claude/handoff/state.md" "fail"
+        fi
+
+        # README references /handoff command
+        if grep -q '/handoff' README.md; then
+          check "README references /handoff command" "ok"
+        else
+          check "README references /handoff command" "fail"
+        fi
+
+        # README mentions gitignored
+        if grep -qi 'gitignore' README.md; then
+          check "README mentions gitignore behavior" "ok"
+        else
+          check "README mentions gitignore behavior" "fail"
+        fi
+
+        # SKILL.md and README agree on output path
+        SKILL_PATH=$(grep -oP '\.claude/handoff/state\.md' {{.SKILL_DIR}}/SKILL.md | head -1)
+        README_PATH=$(grep -oP '\.claude/handoff/state\.md' README.md | head -1)
+        if [ -n "$SKILL_PATH" ] && [ "$SKILL_PATH" = "$README_PATH" ]; then
+          check "SKILL.md and README agree on output path" "ok"
+        else
+          check "SKILL.md and README agree on output path" "fail"
+        fi
+
+        # SKILL.md and README agree on skill name
+        SKILL_NAME=$(sed -n 's/^name: *//p' {{.SKILL_DIR}}/SKILL.md | head -1)
+        if grep -q "/$SKILL_NAME" README.md; then
+          check "README references /$SKILL_NAME command matching SKILL.md name" "ok"
+        else
+          check "README references /$SKILL_NAME command matching SKILL.md name" "fail"
+        fi
+
+        TOTAL=$((PASS + FAIL))
+        echo "---"
+        echo "Documentation: $TOTAL total, $PASS pass, $FAIL fail"
+        [ "$FAIL" -eq 0 ] || exit 1
+
+  eval:
+    desc: Run functional evals (requires claude CLI, ~7 min)
+    cmds:
+      - python3 evals/run_evals.py --mode {{.MODE}}
+
+  eval:latest:
+    desc: Show latest eval dashboard
+    cmds:
+      - |
+        LATEST=$(ls -td handoff-workspace/*/dashboard.md 2>/dev/null | head -1)
+        if [ -n "$LATEST" ]; then
+          cat "$LATEST"
+        else
+          echo "No eval runs found. Run 'task eval' first."
+        fi
+
+  validate:
+    desc: Full validation suite (lint + all tests)
+    cmds:
+      - task: lint
+      - task: test
