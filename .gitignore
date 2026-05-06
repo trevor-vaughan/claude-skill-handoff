@@ -6,5 +6,5 @@ handoff-workspace/
 *.tmp
 *.bak
 
-# Claude Code local config
-.claude/settings.local.json
+# Lola stuff
+.lola/

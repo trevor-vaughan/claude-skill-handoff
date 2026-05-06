@@ -19,7 +19,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-SKILL_DIR = PROJECT_ROOT / ".claude" / "skills" / "handoff"
+SKILL_DIR = PROJECT_ROOT / "module" / "skills" / "handoff"
 EVALS_FILE = SCRIPT_DIR / "evals.json"
 
 

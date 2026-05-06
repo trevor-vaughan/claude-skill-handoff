@@ -2,8 +2,9 @@ version: '3'
 
 vars:
   MODE: '{{.MODE | default "human"}}'
-  SKILL_DIR: .claude/skills/handoff
+  SKILL_DIR: module/skills/handoff
   SKILL_NAME: handoff
+  COMMAND_FILE: module/commands/handoff.md
 
 tasks:
   default:
@@ -12,38 +13,34 @@ tasks:
       - task --list
 
   install:
-    desc: Install handoff skill into ~/.claude/skills/
+    desc: 'Install via lola (defaults: claude-code, user scope; override with `task install -- <flags>`)'
+    preconditions:
+      - sh: command -v lola >/dev/null
+        msg: "lola is required. Install with: uv tool install git+https://github.com/LobsterTrap/lola (see https://lobstertrap.org/lola/)"
+    vars:
+      # handoff is a global tool, not a per-project skill — default to user scope so lola does not
+      # scatter .claude/, .opencode/, AGENTS.md, CLAUDE.md into the user's project directories.
+      # Pass `-- <flags>` to override (e.g. `task install -- -a cursor --scope project`).
+      ARGS: '{{.CLI_ARGS | default "--scope user"}}'
     cmds:
-      - |
-        SKILLS_ROOT="${HOME}/.claude/skills"
-        TARGET="$SKILLS_ROOT/{{.SKILL_NAME}}"
-        SOURCE="$(pwd)/{{.SKILL_DIR}}"
-        mkdir -p "$SKILLS_ROOT"
-        if [ -L "$TARGET" ] || [ -d "$TARGET" ]; then
-          echo "  {{.SKILL_NAME}}: already installed at $TARGET"
-          echo ""
-          echo "Nothing new to install. Use 'task uninstall' first to reinstall."
-        else
-          ln -s "$SOURCE" "$TARGET"
-          echo "  {{.SKILL_NAME}}: installed ($TARGET -> $SOURCE)"
-          echo ""
-          echo "Start a new Claude Code session to pick up the skill."
-        fi
+      # Pin the module name (idempotent) so `lola install {{.SKILL_NAME}}` works regardless of clone-dir name.
+      - lola mod add -n {{.SKILL_NAME}} ./
+      - lola install {{.SKILL_NAME}} {{.ARGS}}
 
   uninstall:
-    desc: Remove handoff skill from ~/.claude/skills/
+    desc: 'Uninstall via lola (defaults: claude-code, user scope; override with `task uninstall -- <flags>`)'
+    preconditions:
+      - sh: command -v lola >/dev/null
+        msg: "lola is required."
+    vars:
+      # Mirror install's defaults so the pair stays coherent — uninstall must target the same
+      # scope/assistant where the install landed.
+      ARGS: '{{.CLI_ARGS | default "--scope user"}}'
     cmds:
-      - |
-        TARGET="${HOME}/.claude/skills/{{.SKILL_NAME}}"
-        if [ -L "$TARGET" ]; then
-          rm "$TARGET"
-          echo "  {{.SKILL_NAME}}: uninstalled"
-        elif [ -d "$TARGET" ]; then
-          rm -rf "$TARGET"
-          echo "  {{.SKILL_NAME}}: uninstalled"
-        else
-          echo "  {{.SKILL_NAME}}: not installed"
-        fi
+      - lola uninstall {{.SKILL_NAME}} {{.ARGS}}
+      # Full inverse of install's `lola mod add`; -f skips the interactive
+      # confirmation prompt (which would otherwise hang in non-interactive runs).
+      - lola mod rm -f {{.SKILL_NAME}}
 
   lint:
     desc: Check required project files exist and are non-empty
@@ -51,7 +48,7 @@ tasks:
       - |
         echo "=== File Lint ==="
         MISSING=0
-        for f in {{.SKILL_DIR}}/SKILL.md README.md evals/evals.json .gitignore; do
+        for f in {{.SKILL_DIR}}/SKILL.md {{.COMMAND_FILE}} module/AGENTS.md README.md evals/evals.json .gitignore; do
           if [ ! -f "$f" ]; then
             echo "  MISSING: $f"
             MISSING=$((MISSING + 1))
@@ -374,11 +371,11 @@ tasks:
           fi
         }
 
-        # README references the correct skill path
-        if grep -q '\.claude/skills/handoff' README.md; then
-          check "README references .claude/skills/handoff" "ok"
+        # README references the correct skill source path
+        if grep -q 'module/skills/handoff' README.md; then
+          check "README references module/skills/handoff" "ok"
         else
-          check "README references .claude/skills/handoff" "fail"
+          check "README references module/skills/handoff" "fail"
         fi
 
         # README references the output path

@@ -1,12 +1,12 @@
 ---
 name: handoff
-disable-model-invocation: true
 description: >-
-  Save current session state for resuming in a new Claude session. Invoked
-  explicitly via /handoff slash command. Use when migrating between environments
-  (containers, machines), ending a session with unfinished work, or whenever you
-  need a portable snapshot of the current task, progress, decisions, and next
-  steps.
+  DO NOT AUTO-INVOKE. This skill is the internal implementation of the
+  /handoff slash command — activating it without an explicit /handoff trigger
+  from the user is a usage error. When properly invoked via /handoff, it
+  captures the current session into a portable briefing at
+  .claude/handoff/state.md for resuming in a new session, environment, or
+  agent host.
 ---
 
 # /handoff — Portable Session State Capture
